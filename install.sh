@@ -66,22 +66,10 @@ until [[ $my_fs == "btrfs" || $my_fs == "ext4" ]]; do
     [[ ! $my_fs ]] && my_fs="btrfs"
 done
 
-root_part=$part3
-[[ $my_fs == "ext4" ]] && root_part=$part2
+my_root=$part3
+my_swap=$part2
+[[ $my_fs == "ext4" ]] && my_root=$part2
 
-# Encrypt or not
-printf "Encrypt? (Y/n): " && read encrypted
-[[ ! $encrypted ]] && encrypted="y"
-
-my_root="/dev/mapper/root"
-my_swap="/dev/mapper/swap"
-if [[ $encrypted == "n" ]]; then
-    my_root=$part3
-    my_swap=$part2
-    [[ $my_fs == "ext4" ]] && my_root=$part2
-else
-    cryptpass=$(confirm_password "encryption password")
-fi
 [[ $my_fs == "ext4" ]] && my_swap="/dev/MyVolGrp/swap"
 
 # Timezone
@@ -97,14 +85,26 @@ do
     [[ $my_hostname ]] && break
 done
 
+# Choose init system
+until [[ $my_init == "runit" || $my_init == "openrc" ]]; do
+    printf "Init system (runit/openrc): " && read my_init
+    [[ ! $my_init ]] && my_init="runit"
+done
+
+# Choose kernel system
+until [[ $my_kernel == "linux" || $my_kernel == "linux-lts" || $my_kernel == "linux-zen" ]]; do
+    printf "Kernel (linux/linux-lts/linux-zen): " && read my_kernel
+    [[ ! $my_kernel ]] && my_kernel="linux"
+done
+
 # Users
 root_password=$(confirm_password "root password")
 
 installvars () {
     echo my_disk=$my_disk part1=$part1 part2=$part2 part3=$part3 \
-        swap_size=$swap_size my_fs=$my_fs root_part=$root_part encrypted=$encrypted my_root=$my_root my_swap=$my_swap \
-        region_city=$region_city my_hostname=$my_hostname \
-        cryptpass=$cryptpass root_password=$root_password
+        swap_size=$swap_size my_fs=$my_fs my_root=$my_root my_swap=$my_swap \
+        region_city=$region_city my_hostname=$my_hostname my_init=$my_init \
+        my_kernel=$my_kernel cryptpass=$cryptpass root_password=$root_password
 }
 
 printf "\nDone with configuration. Installing...\n\n"

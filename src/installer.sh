@@ -20,13 +20,9 @@
 # along with artix-installer. If not, see <https://www.gnu.org/licenses/>.
 
 # Partition disk
-if [[ $encrypted != "n" ]]; then
-    [[ $my_fs == "btrfs" ]] && fs_pkgs="cryptsetup cryptsetup-openrc btrfs-progs"
-    [[ $my_fs == "ext4" ]] && fs_pkgs="cryptsetup lvm2 lvm2-openrc"
-else
-    [[ $my_fs == "btrfs" ]] && fs_pkgs="btrfs-progs"
-    [[ $my_fs == "ext4" ]] && fs_pkgs="lvm2 lvm2-openrc"
-fi
+[[ $my_fs == "btrfs" ]] && fs_pkgs="btrfs-progs"
+[[ $my_fs == "ext4" ]] && fs_pkgs="lvm2 lvm2-$my_init"
+
 
 if [[ $my_fs == "ext4" ]]; then
     layout=",,V"
@@ -36,17 +32,9 @@ fi
 printf "label: gpt\n,550M,U\n$layout\n" | sfdisk $my_disk
 
 # Format and mount partitions
-if [[ $encrypted != "n" ]]; then
-    yes $cryptpass | cryptsetup -q luksFormat $root_part
-    yes $cryptpass | cryptsetup open $root_part root
-
-    if [[ $my_fs == "btrfs" ]]; then
-        yes $cryptpass | cryptsetup -q luksFormat $part2
-        yes $cryptpass | cryptsetup open $part2 swap
-    fi
-fi
 
 mkfs.fat -F 32 $part1
+fatlabel $part1 BOOT
 
 if [[ $my_fs == "ext4" ]]; then
     # Setup LVM
@@ -59,28 +47,38 @@ if [[ $my_fs == "ext4" ]]; then
 
     mount /dev/MyVolGrp/root /mnt
 elif [[ $my_fs == "btrfs" ]]; then
-    mkfs.btrfs $my_root
+    mkfs.btrfs -L artix $my_root
 
     # Create subvolumes
     mount $my_root /mnt
-    btrfs subvolume create /mnt/root
-    btrfs subvolume create /mnt/home
+    cd /mnt
+    btrfs subvolume create _active
+    btrfs subvolume create _active/rootvol
+    btrfs subvolume create _active/homevol
+    btrfs subvolume create _snapshots
+    cd ..
     umount -R /mnt
 
     # Mount subvolumes
     mount -t btrfs -o compress=zstd,subvol=root $my_root /mnt
     mkdir /mnt/home
-    mount -t btrfs -o compress=zstd,subvol=home $my_root /mnt/home
+    mount -t btrfs -o compress=zstd,subvol=home $my_root /mnt/home   
+    mount -o subvol=_active/rootvol $my_root /mnt
+    mkdir /mnt/home
+    mkdir /mnt/mnt/defvol
+    mount -o subvol=_active/homevol $my_root /mnt/home
+    mount -o subvol=/ $my_root /mnt/mnt/defvol
 fi
 
-mkswap $my_swap
-mkdir /mnt/boot
-mount $part1 /mnt/boot
+mkswap -L SWAP $my_swap
+mkdir /mnt/boot/efi
+mount $part1 /mnt/boot/efi
+
 
 [[ $(grep 'vendor' /proc/cpuinfo) == *"Intel"* ]] && ucode="intel-ucode"
 [[ $(grep 'vendor' /proc/cpuinfo) == *"Amd"* ]] && ucode="amd-ucode"
 
 # Install base system and kernel
-basestrap /mnt base base-devel openrc elogind-openrc $fs_pkgs efibootmgr grub $ucode dhcpcd wpa_supplicant connman-openrc
-basestrap /mnt linux linux-firmware linux-headers mkinitcpio
+basestrap /mnt base base-devel $my_init elogind-$my_init $fs_pkgs efibootmgr grub $ucode dhcpcd wpa_supplicant connman-$my_init os-prober
+basestrap /mnt $my_kernel linux-firmware linux-headers mkinitcpio
 fstabgen -U /mnt > /mnt/etc/fstab
